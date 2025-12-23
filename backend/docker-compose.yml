@@ -25,13 +25,3 @@ services:
       - ./grafana/dashboards:/etc/grafana/dashboards
     networks:
       - monitoring
-
-  redis:
-    image: redis:alpine
-    command: redis-server --appendonly yes --save 900 1 --save 300 10
-    volumes:
-      - ./redis_data:/data
-    ports:
-      - "6379:6379"
-    networks:
-      - monitoring

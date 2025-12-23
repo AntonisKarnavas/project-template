@@ -37,10 +37,14 @@ exclude = [
     "node_modules",
     "site-packages",
     "venv",
+    "__pycache__",
+    ".venv",
+    ".vscode",
+    ".env"
 ]
 
 # Same as Black.
-line-length = 88
+line-length = 150
 indent-width = 4
 
 [tool.ruff.lint]
@@ -48,7 +52,7 @@ indent-width = 4
 # Unlike Flake8, Ruff doesn't enable pycodestyle warnings (`W`) or
 # McCabe complexity (`C901`) by default.
 select = ["E", "F", "I", "B", "W"]
-ignore = []
+ignore = ["B008"]  # Allow function calls in argument defaults (FastAPI Depends pattern)
 
 # Allow fix for all enabled rules (when `--fix`) is provided.
 fixable = ["ALL"]

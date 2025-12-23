@@ -1,10 +1,10 @@
-import asyncio
 import argparse
-import sys
-import os
-import asyncpg
+import asyncio
 
-from database.core import engine, check_connection, settings
+import asyncpg
+from sqlalchemy import MetaData
+
+from database.core import check_connection, engine, settings
 from database.models import Base
 
 
@@ -23,9 +23,7 @@ async def create_database_if_not_exists():
 
     try:
         # Check if database exists
-        exists = await sys_conn.fetchval(
-            "SELECT 1 FROM pg_database WHERE datname = $1", settings.POSTGRES_DB
-        )
+        exists = await sys_conn.fetchval("SELECT 1 FROM pg_database WHERE datname = $1", settings.POSTGRES_DB)
         if not exists:
             print(f"Database '{settings.POSTGRES_DB}' does not exist. Creating...")
             # CREATE DATABASE cannot run inside a transaction block
@@ -52,12 +50,15 @@ async def setup_db():
 
 async def drop_db():
     """
-    Drops all tables defined in the models.
+    Drops all tables in the database.
     Does NOT drop the database itself.
     """
     print("Dropping tables...")
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+        # Reflect existing tables to ensure we drop everything, including zombie tables
+        meta = MetaData()
+        await conn.run_sync(meta.reflect)
+        await conn.run_sync(meta.drop_all)
     print("Tables dropped.")
 
 
@@ -71,16 +72,10 @@ async def reset_db():
 
 async def main():
     parser = argparse.ArgumentParser(description="Database management script")
-    parser.add_argument(
-        "--setup", action="store_true", help="Create database and tables"
-    )
+    parser.add_argument("--setup", action="store_true", help="Create database and tables")
     parser.add_argument("--drop", action="store_true", help="Drop database tables")
-    parser.add_argument(
-        "--reset", action="store_true", help="Reset database (drop and create tables)"
-    )
-    parser.add_argument(
-        "--check", action="store_true", help="Check database connection"
-    )
+    parser.add_argument("--reset", action="store_true", help="Reset database (drop and create tables)")
+    parser.add_argument("--check", action="store_true", help="Check database connection")
 
     args = parser.parse_args()
 

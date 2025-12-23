@@ -1,30 +1,37 @@
 import uvicorn
-from fastapi import FastAPI, Depends
-from fastapi.openapi.docs import get_swagger_ui_html, get_redoc_html
-from fastapi.openapi.utils import get_openapi
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
+from fastapi.openapi.utils import get_openapi
+from prometheus_fastapi_instrumentator import Instrumentator
 
-from routers import example_router, health, auth
-from config import settings, Environment
+from config import Environment, settings
+from core.errors import create_exception_handlers
+from core.firebase import initialize_firebase
 
 # Middlewares
 from core.logging import setup_logging
-from security.docs import get_current_username
 from middlewares.logging import RequestLoggingMiddleware
 from middlewares.request_id import RequestIDMiddleware
-from middlewares.auth import UserContextMiddleware
-from middlewares.size_limit import RequestSizeLimitMiddleware
 from middlewares.security_headers import SecurityHeadersMiddleware
-from middlewares.validation import RequestValidationMiddleware
-from prometheus_fastapi_instrumentator import Instrumentator, metrics
+from middlewares.size_limit import RequestSizeLimitMiddleware
 from middlewares.timeout import TimeoutMiddleware
-
-from core.logging import setup_logging
-from core.errors import create_exception_handlers
+from middlewares.validation import RequestValidationMiddleware
+from routers import firebase_auth, health
+from security.docs import get_current_username
 
 setup_logging()
+
+# Initialize Firebase Admin SDK
+try:
+    initialize_firebase()
+except FileNotFoundError as e:
+    print(f"Warning: {e}")
+    print("Firebase authentication will not be available until you configure it.")
+except Exception as e:
+    print(f"Error initializing Firebase: {e}")
 
 app = FastAPI(title="Project Template", docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -57,24 +64,20 @@ app.add_middleware(RequestSizeLimitMiddleware)
 # 6. Timeout (Performance) - Ensure requests don't hang forever
 app.add_middleware(TimeoutMiddleware)
 
-
-# 8. Validation & Sanitization (Security/Processing)
+# 7. Validation & Sanitization (Security/Processing)
 app.add_middleware(RequestValidationMiddleware)
 
-# 9. User Context (Auth)
-app.add_middleware(UserContextMiddleware)
-
-# 10. Request ID (Observability)
+# 8. Request ID (Observability)
 app.add_middleware(RequestIDMiddleware)
 
-# 11. Logging (Observability) - Should be outer-most to catch everything (including timing)
+# 9. Logging (Observability) - Should be outer-most to catch everything (including timing)
 app.add_middleware(RequestLoggingMiddleware)
 
 
 # Routers
-app.include_router(auth.router)
 
-app.include_router(example_router.router)
+# Firebase auth router
+app.include_router(firebase_auth.router)
 app.include_router(health.router)
 
 

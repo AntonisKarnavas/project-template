@@ -1,77 +1,34 @@
-from datetime import datetime, timedelta
+"""
+Authentication Module
+
+Handles Firebase token verification and user provisioning.
+Uses firebase_uid as the primary lookup key for users.
+"""
 from typing import Optional
-from jose import JWTError, jwt
-from passlib.context import CryptContext
-from fastapi import Depends, HTTPException, status, Request
+
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
-from pydantic_models.schemas import TokenData
-from config import settings
-from security.redis import get_redis
-import redis.asyncio as redis
-import secrets
-import hashlib
-import base64
+from firebase_admin import auth as firebase_auth
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
-SECRET_KEY = settings.SECRET_KEY
-ALGORITHM = settings.ALGORITHM
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+from core.firebase import verify_firebase_token
+from database.core import get_db
+from database.models import User
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token", auto_error=False)
+# Defined for Swagger UI to show the "Authorize" button
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/firebase/login", auto_error=False)
 
 
-def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
-
-
-def get_password_hash(password):
-    return pwd_context.hash(password)
-
-
-def generate_random_string(length=48):
-    return secrets.token_urlsafe(length)
-
-
-def create_code_challenge(verifier: str) -> str:
-    digest = hashlib.sha256(verifier.encode()).digest()
-    return base64.urlsafe_b64encode(digest).decode().rstrip("=")
-
-
-def verify_pkce(verifier: str, challenge: str) -> bool:
-    if not verifier or not challenge:
-        return False
-    # Only S256 supported
-    expected = create_code_challenge(verifier)
-    return expected == challenge
-
-
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
-    to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-
-    # Add JTI (Unique Identifier) for blacklist capability
-    if "jti" not in to_encode:
-        to_encode["jti"] = secrets.token_hex(16)
-
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
-
-
-async def get_token_from_header_or_cookie(
-    request: Request, token: Optional[str] = Depends(oauth2_scheme)
-) -> str:
+async def get_token_from_header(request: Request, token: Optional[str] = Depends(oauth2_scheme)) -> str:
+    """Extract Bearer token from Authorization header."""
     if token:
         return token
 
-    cookie_token = request.cookies.get("access_token")
-    if cookie_token:
-        if cookie_token.startswith("Bearer "):
-            return cookie_token.split(" ")[1]
-        return cookie_token
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        return auth_header.split(" ")[1]
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -81,32 +38,123 @@ async def get_token_from_header_or_cookie(
 
 
 async def get_current_user(
-    token: str = Depends(get_token_from_header_or_cookie),
-    redis_conn: redis.Redis = Depends(get_redis),
-):
+    token: str = Depends(get_token_from_header),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """
+    FastAPI dependency to get current authenticated user.
+
+    Uses firebase_uid as the primary lookup key.
+    Creates new user if not found (JIT provisioning).
+    """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        user_id: str = payload.get("sub")
-        jti: str = payload.get("jti")
 
-        if user_id is None:
+    try:
+        decoded_token = verify_firebase_token(token)
+        firebase_uid = decoded_token.get("uid")
+        email = decoded_token.get("email")
+
+        if not firebase_uid:
             raise credentials_exception
 
-        # Check Blacklist
-        if jti:
-            is_revoked = await redis_conn.get(f"blacklist:{jti}")
-            if is_revoked:
-                raise credentials_exception
+        # Look up user by firebase_uid
+        stmt = select(User).where(User.firebase_uid == firebase_uid)
+        result = await db.execute(stmt)
+        user = result.scalar_one_or_none()
 
-        token_data = TokenData(
-            user_id=str(user_id), sub=str(user_id), scope=payload.get("scope")
+        if user:
+            return user
+
+        # Create new user (JIT Provisioning)
+        new_user = User(
+            email=email,
+            firebase_uid=firebase_uid,
         )
-    except JWTError:
-        raise credentials_exception
+        db.add(new_user)
+        try:
+            await db.commit()
+            await db.refresh(new_user)
+            return new_user
+        except IntegrityError:
+            await db.rollback()
+            result = await db.execute(stmt)
+            user = result.scalar_one_or_none()
+            if user:
+                return user
+            raise credentials_exception from None
 
-    return token_data
+    except Exception:
+        raise credentials_exception from None
+
+
+async def verify_and_get_user(db: AsyncSession, id_token: str) -> User:
+    """
+    Verify Firebase ID token and get or create user in database.
+
+    This is used by the /auth/firebase/login endpoint to verify
+    tokens sent in the request body (not Authorization header).
+
+    Args:
+        db: Database session
+        id_token: Firebase ID token from client
+
+    Returns:
+        User: The authenticated user
+
+    Raises:
+        HTTPException: If token is invalid or user creation fails
+    """
+    try:
+        decoded_token = verify_firebase_token(id_token)
+        firebase_uid = decoded_token["uid"]
+        email = decoded_token.get("email")
+
+        if not email:
+            raise HTTPException(status_code=400, detail="Email not found in Firebase token")
+
+        # Look up user by firebase_uid
+        stmt = select(User).where(User.firebase_uid == firebase_uid)
+        result = await db.execute(stmt)
+        user = result.scalar_one_or_none()
+
+        if user:
+            return user
+
+        # Create new user
+        new_user = User(
+            email=email,
+            firebase_uid=firebase_uid,
+        )
+        db.add(new_user)
+
+        try:
+            await db.commit()
+            await db.refresh(new_user)
+            return new_user
+        except IntegrityError:
+            await db.rollback()
+            result = await db.execute(stmt)
+            user = result.scalar_one_or_none()
+            if user:
+                return user
+            raise HTTPException(status_code=400, detail="Failed to create user") from None
+
+    except firebase_auth.InvalidIdTokenError as err:
+        raise HTTPException(status_code=401, detail="Invalid Firebase ID token") from err
+    except firebase_auth.ExpiredIdTokenError as err:
+        raise HTTPException(status_code=401, detail="Firebase ID token has expired") from err
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Authentication error: {str(e)}") from e
+
+
+async def get_user_by_firebase_uid(db: AsyncSession, firebase_uid: str) -> Optional[User]:
+    """Get user by Firebase UID from database."""
+    stmt = select(User).where(User.firebase_uid == firebase_uid)
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none()

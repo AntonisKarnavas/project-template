@@ -1,12 +1,13 @@
-from pydantic import BaseModel, EmailStr, ConfigDict
-from typing import Optional, List
 from datetime import datetime
+from typing import Optional
+
+from pydantic import BaseModel, ConfigDict, EmailStr
 
 
 class Token(BaseModel):
     access_token: str
-    token_type: str
-    refresh_token: Optional[str] = None
+    token_type: str = "bearer"
+    refresh_token: str
     expires_in: int
     scope: Optional[str] = None
 
@@ -38,6 +39,9 @@ class UserResponse(UserBase):
     model_config = ConfigDict(from_attributes=True)
 
 
-
 class SocialLoginRequest(BaseModel):
     token: str
+
+
+class TokenRefreshRequest(BaseModel):
+    refresh_token: str

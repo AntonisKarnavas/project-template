@@ -1,7 +1,8 @@
-from pydantic_settings import BaseSettings
-from typing import List, Optional
-from pydantic import BaseModel
 from enum import Enum
+from typing import List, Optional
+
+from pydantic import BaseModel
+from pydantic_settings import BaseSettings
 
 
 class Environment(str, Enum):
@@ -32,10 +33,13 @@ class SecurityOverrides(BaseModel):
 
 class Settings(BaseSettings):
     # Security
-    SECRET_KEY: str = "your-secret-key"
-    ALGORITHM: str = "HS256"
-    ALLOWED_HOSTS: List[str] = ["localhost", "127.0.0.1", "host.docker.internal", "testserver"]
-    ALLOWED_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8081"]
+    ALLOWED_HOSTS: List[str] = [
+        "localhost",
+        "127.0.0.1",
+        "host.docker.internal",
+        "testserver",
+    ]
+    ALLOWED_ORIGINS: List[str]  # Required - must be set in .env
     ENVIRONMENT: Environment = Environment.DEV
 
     # Security Headers
@@ -48,19 +52,25 @@ class Settings(BaseSettings):
     SECURITY_PERMISSIONS_POLICY: str = "geolocation=(), microphone=(), camera=()"
     SECURITY_OVERRIDES: List[SecurityOverrides] = []
 
-    # Auth
-    REFRESH_HINT_WINDOW_SECONDS: int = 300  # 5 minutes
-    
-    # Social Auth Credentials
-    GOOGLE_CLIENT_ID: Optional[str] = None
-    
-    FACEBOOK_APP_ID: Optional[str] = None
-    FACEBOOK_APP_SECRET: Optional[str] = None
-    
-    APPLE_CLIENT_ID: Optional[str] = None
-    APPLE_TEAM_ID: Optional[str] = None
-    APPLE_KEY_ID: Optional[str] = None
-    APPLE_PRIVATE_KEY: Optional[str] = None
+    # Firebase Configuration
+    FIREBASE_SERVICE_ACCOUNT_PATH: Optional[str] = None
+
+    # Database Configuration
+    POSTGRES_USER: str = "postgres"
+    POSTGRES_PASSWORD: str  # Required - must be set in .env
+    POSTGRES_SERVER: str = "localhost"
+    POSTGRES_PORT: int = 5432
+    POSTGRES_DB: str  # Required - must be set in .env
+
+    # SQLAlchemy Engine Tuning
+    DB_POOL_SIZE: int = 5  # Number of connections to keep open
+    DB_MAX_OVERFLOW: int = 10  # Connections allowed above pool_size
+    DB_POOL_RECYCLE: int = 3600  # Recycle connections after N seconds
+
+    @property
+    def DATABASE_URL(self) -> str:
+        """Constructs the SQLAlchemy async database URL."""
+        return f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
 
     # Performance
     MAX_UPLOAD_SIZE: int = 10_000_000  # 10MB
@@ -112,9 +122,6 @@ class Settings(BaseSettings):
     DOCS_USERNAME: str = "admin"
     DOCS_PASSWORD: str = "admin"
 
-    # Redis
-    REDIS_URL: str = "redis://localhost:6379/0"
-
     # Test Configuration
     TEST_DATABASE_MODE: str = "FAKE"
 
@@ -136,8 +143,6 @@ settings.SECURITY_OVERRIDES.extend(
     [
         SecurityOverrides(path_pattern=r"^/docs", content_security_policy=docs_csp),
         SecurityOverrides(path_pattern=r"^/redoc", content_security_policy=docs_csp),
-        SecurityOverrides(
-            path_pattern=r"^/openapi.json", content_security_policy=docs_csp
-        ),
+        SecurityOverrides(path_pattern=r"^/openapi.json", content_security_policy=docs_csp),
     ]
 )

@@ -1,41 +1,9 @@
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from typing import AsyncGenerator
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from contextlib import asynccontextmanager
+from typing import AsyncGenerator
 
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-class Settings(BaseSettings):
-    """
-    Database configuration settings.
-    Reads from environment variables or .env file.
-    """
-
-    # Postgres Connection Credentials
-    POSTGRES_USER: str
-    POSTGRES_PASSWORD: str
-    POSTGRES_SERVER: str
-    POSTGRES_PORT: int = 5432
-    POSTGRES_DB: str
-
-    # SQLAlchemy Engine Tuning
-    # pool_size: The number of connections to keep open inside the connection pool.
-    DB_POOL_SIZE: int = 5
-    # max_overflow: The number of connections to allow in overflow, that is,
-    # connections that can be opened above and beyond the pool_size setting.
-    DB_MAX_OVERFLOW: int = 10
-    # pool_recycle: This setting causes the pool to recycle connections after the given
-    # number of seconds has passed. It defaults to -1, or no timeout.
-    DB_POOL_RECYCLE: int = 3600
-
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
-
-    @property
-    def DATABASE_URL(self) -> str:
-        """Constructs the SQLAlchemy async database URL."""
-        return f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
-
-
-settings = Settings()
+from config import settings
 
 # Create the Async Engine
 engine = create_async_engine(
@@ -46,9 +14,7 @@ engine = create_async_engine(
     pool_recycle=settings.DB_POOL_RECYCLE,
 )
 
-AsyncSessionLocal = async_sessionmaker(
-    engine, class_=AsyncSession, expire_on_commit=False
-)
+AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:

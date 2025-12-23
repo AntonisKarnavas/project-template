@@ -5,14 +5,14 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import LoginScreen from './screens/LoginScreen';
 import SignupScreen from './screens/SignupScreen';
 import { View, Text, TouchableOpacity, ActivityIndicator } from 'react-native';
-import useAuthStore from './store/authStore';
+import useFirebaseAuthStore from './store/firebaseAuthStore';
 import { styled } from 'nativewind';
 import { useEffect } from 'react';
 
 const Stack = createNativeStackNavigator();
 
 function HomeScreen() {
-  const logout = useAuthStore((state) => state.logout);
+  const logout = useFirebaseAuthStore((state) => state.logout);
   return (
     <View className="flex-1 justify-center items-center bg-white">
       <Text className="text-2xl mb-4 font-bold">Welcome!</Text>
@@ -24,12 +24,12 @@ function HomeScreen() {
 }
 
 export default function App() {
-  const user = useAuthStore((state) => state.user);
-  const isLoading = useAuthStore((state) => state.isLoading);
-  const checkAuth = useAuthStore((state) => state.checkAuth);
+  const user = useFirebaseAuthStore((state) => state.user);
+  const isLoading = useFirebaseAuthStore((state) => state.isLoading);
+  const initializeAuth = useFirebaseAuthStore((state) => state.initializeAuth);
 
   useEffect(() => {
-    checkAuth();
+    initializeAuth();
   }, []);
 
   if (isLoading) {
