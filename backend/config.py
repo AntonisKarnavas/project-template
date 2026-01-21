@@ -39,7 +39,7 @@ class Settings(BaseSettings):
         "host.docker.internal",
         "testserver",
     ]
-    ALLOWED_ORIGINS: List[str]  # Required - must be set in .env
+    ALLOWED_ORIGINS: List[str]
     ENVIRONMENT: Environment = Environment.DEV
 
     # Security Headers
@@ -56,11 +56,11 @@ class Settings(BaseSettings):
     FIREBASE_SERVICE_ACCOUNT_PATH: Optional[str] = None
 
     # Database Configuration
-    POSTGRES_USER: str = "postgres"
-    POSTGRES_PASSWORD: str  # Required - must be set in .env
-    POSTGRES_SERVER: str = "localhost"
-    POSTGRES_PORT: int = 5432
-    POSTGRES_DB: str  # Required - must be set in .env
+    POSTGRES_USER: str
+    POSTGRES_PASSWORD: str
+    POSTGRES_SERVER: str
+    POSTGRES_PORT: int
+    POSTGRES_DB: str
 
     # SQLAlchemy Engine Tuning
     DB_POOL_SIZE: int = 5  # Number of connections to keep open
